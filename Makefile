@@ -9,7 +9,9 @@ Controls: RigidBodyPlanningWithODESolverAndControls.o
 	$(CXX) $(CXXFLAGS) -o Controls RigidBodyPlanningWithODESolverAndControls.o $(LD_FLAGS)
 
 clean:
-	rm *.o
+	rm -rf *.o
+	rm -rf path.txt
+	rm -rf Controls
 
 %.o: %.cpp
 	$(CXX) -c $(CXXFLAGS) $(INCLUDE_FLAGS) $< -o $@
