@@ -1,43 +1,46 @@
 /*********************************************************************
-* Software License Agreement (BSD License)
-*
-*  Copyright (c) 2008, Willow Garage, Inc.
-*  All rights reserved.
-*
-*  Redistribution and use in source and binary forms, with or without
-*  modification, are permitted provided that the following conditions
-*  are met:
-*
-*   * Redistributions of source code must retain the above copyright
-*     notice, this list of conditions and the following disclaimer.
-*   * Redistributions in binary form must reproduce the above
-*     copyright notice, this list of conditions and the following
-*     disclaimer in the documentation and/or other materials provided
-*     with the distribution.
-*   * Neither the name of the Willow Garage nor the names of its
-*     contributors may be used to endorse or promote products derived
-*     from this software without specific prior written permission.
-*
-*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-*  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-*  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-*  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-*  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-*  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-*  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-*  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-*  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-*  POSSIBILITY OF SUCH DAMAGE.
-*********************************************************************/
+ * Software License Agreement (BSD License)
+ *
+ *  Copyright (c) 2008, Willow Garage, Inc.
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *   * Neither the name of the Willow Garage nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *********************************************************************/
 
 /* Author: Ioan Sucan */
 
 #include "RGRRT.h"
+#include <ompl/control/spaces/RealVectorControlSpace.h>
 #include <ompl/base/goals/GoalSampleableRegion.h>
 #include <ompl/tools/config/SelfConfig.h>
 #include <limits>
+#include <boost/function.hpp>
+#include <boost/bind.hpp>
 
 ompl::control::RGRRT::RGRRT(const SpaceInformationPtr &si) : base::Planner(si, "RRT")
 {
@@ -50,6 +53,9 @@ ompl::control::RGRRT::RGRRT(const SpaceInformationPtr &si) : base::Planner(si, "
 
     Planner::declareParam<double>("goal_bias", this, &RGRRT::setGoalBias, &RGRRT::getGoalBias, "0.:.05:1.");
     Planner::declareParam<bool>("intermediate_states", this, &RGRRT::setIntermediateStates, &RGRRT::getIntermediateStates);
+
+    const std::vector<double> diff = siC_->getControlSpace()->as<RealVectorControlSpace>()->getBounds().getDifference();
+    this->control_offset = diff[0] / double(this->RSIZE);
 }
 
 ompl::control::RGRRT::~RGRRT(void)
@@ -93,6 +99,42 @@ void ompl::control::RGRRT::freeMemory(void)
     }
 }
 
+void ompl::control::RGRRT::setupReachableSet(Motion* const m)
+{
+    const std::vector<double>& low_bound = siC_->getControlSpace()->as<RealVectorControlSpace>()->getBounds().low;
+    for(int i = 0; i < this->RSIZE; ++i)
+    {
+        Motion* motion = new Motion(siC_);
+        motion->state = si_->allocState();
+
+        motion->control = siC_->allocControl();
+        siC_->copyControl(motion->control, m->control);
+        double*& controls = motion->control->as<RealVectorControlSpace::ControlType>()->values;
+        controls[0] = low_bound[0] + control_offset * (i+1);
+
+        motion->steps = siC_->propagateWhileValid(m->state, motion->control, siC_->getMinControlDuration(), motion->state);
+
+        if(motion->steps != 0)
+            m->reachable.push_back(motion); 
+    }
+}
+
+void ompl::control::RGRRT::selectReachableMotion(const Motion* qnear, const Motion* qrand, Motion* qr)
+{
+    const double nearD = si_->distance(qnear->state, qrand->state);
+    double minD = nearD;
+    const std::vector<Motion*>& reachable = qnear->reachable;
+    for(Motion* m : reachable)
+    {
+        double newD = si_->distance(m->state, qrand->state);
+        if(newD < minD)
+        {
+            minD = newD;
+            qr = m;
+        }
+    }
+}
+
 ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTerminationCondition &ptc)
 {
     checkValidity();
@@ -104,6 +146,7 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
         Motion *motion = new Motion(siC_);
         si_->copyState(motion->state, st);
         siC_->nullControl(motion->control);
+        setupReachableSet(motion);
         nn_->add(motion);
     }
 
@@ -140,14 +183,16 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
         /* find closest state in the tree */
         Motion *nmotion = nn_->nearest(rmotion);
 
-        /* sample a random control that attempts to go towards the random state, and also sample a control duration */
-        unsigned int cd = controlSampler_->sampleTo(rctrl, nmotion->control, nmotion->state, rmotion->state);
+        // Select a sample from the nearest state's reachable set that is closer to the random state
+        Motion *motion = NULL;
+        selectReachableMotion(nmotion, rmotion, motion);
+        unsigned int cd = motion->steps;
 
         if (addIntermediateStates_)
         {
             // this code is contributed by Jennifer Barry
             std::vector<base::State *> pstates;
-            cd = siC_->propagateWhileValid(nmotion->state, rctrl, cd, pstates, true);
+            cd = siC_->propagateWhileValid(nmotion->state, motion->control, cd, pstates, true);
 
             if (cd >= siC_->getMinControlDuration())
             {
@@ -165,6 +210,7 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
                     motion->steps = 1;
                     motion->parent = lastmotion;
                     lastmotion = motion;
+                    setupReachableSet(motion);
                     nn_->add(motion);
                     double dist = 0.0;
                     solved = goal->isSatisfied(motion->state, &dist);
@@ -196,11 +242,8 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
             if (cd >= siC_->getMinControlDuration())
             {
                 /* create a motion */
-                Motion *motion = new Motion(siC_);
-                si_->copyState(motion->state, rmotion->state);
-                siC_->copyControl(motion->control, rctrl);
-                motion->steps = cd;
                 motion->parent = nmotion;
+                setupReachableSet(motion);
 
                 nn_->add(motion);
                 double dist = 0.0;
@@ -283,11 +326,11 @@ void ompl::control::RGRRT::getPlannerData(base::PlannerData &data) const
         {
             if (data.hasControls())
                 data.addEdge(base::PlannerDataVertex(m->parent->state),
-                             base::PlannerDataVertex(m->state),
-                             control::PlannerDataEdgeControl(m->control, m->steps * delta));
+                        base::PlannerDataVertex(m->state),
+                        control::PlannerDataEdgeControl(m->control, m->steps * delta));
             else
                 data.addEdge(base::PlannerDataVertex(m->parent->state),
-                             base::PlannerDataVertex(m->state));
+                        base::PlannerDataVertex(m->state));
         }
         else
             data.addStartVertex(base::PlannerDataVertex(m->state));
