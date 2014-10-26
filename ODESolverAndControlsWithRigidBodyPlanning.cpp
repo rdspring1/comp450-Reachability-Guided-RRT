@@ -59,17 +59,85 @@ const double square = 0.125;
 const double g = 9.81;
 
 // Pendulum Limits
-const double torque_limit = M_PI / 4;
+const double torque_limit = M_PI;
+const double pen_velocity_limit = 2*M_PI;
 
 // Car Limits
 const double turning_limit = M_PI / 2;
 const double acceleration_limit = 0.25;
+const double car_velocity_limit = 1;
 
 typedef std::pair<double, double> Point2D;
 typedef std::vector<Point2D> Rect;
 
 namespace ob = ompl::base;
 namespace oc = ompl::control;
+
+double dist(double x1, double y1, double x2, double y2)
+{
+    return sqrt(pow(x1-x2, 2) + pow(y1-y2, 2));
+}
+
+bool lineIntersection(Point2D ours0, Point2D ours1, Point2D theirs0, Point2D theirs1)
+{
+    double theirs_lowerX = std::min(theirs0.first, theirs1.first);
+    double theirs_upperX = std::max(theirs0.first, theirs1.first);
+    double ours_lowerX = std::min(ours0.first, ours1.first);
+    double ours_upperX = std::max(ours0.first, ours1.first);
+
+    // Check if Y range of the lines overlap
+    double theirs_lowerY = std::min(theirs0.second, theirs1.second);
+    double theirs_upperY = std::max(theirs0.second, theirs1.second);
+    double ours_lowerY = std::min(ours0.second, ours1.second);
+    double ours_upperY = std::max(ours0.second, ours1.second);
+
+    bool y0_overlap = (ours_lowerY >= theirs_lowerY) && (ours_lowerY <= theirs_upperY);
+    bool y1_overlap = (ours_upperY >= theirs_lowerY) && (ours_lowerY <= theirs_upperY);
+    if(!(y0_overlap || y1_overlap))
+        return false;
+
+    double ours_m = (ours1.second - ours0.second) / (ours1.first - ours0.first);
+    double ours_b = ours0.second - ours_m * ours0.first;
+
+    double theirs_m = (theirs1.second - theirs0.second) / (theirs1.first - theirs0.first);
+    double theirs_b = theirs0.second - theirs_m * theirs0.first;
+
+    if(isinf(ours_m))
+    {
+        // Check if X range of the lines overlap
+        bool x_overlap = (theirs_lowerX < ours0.first) && (theirs_upperX > ours0.first);
+        if(!x_overlap)
+            return false;
+
+        double theirs_value = theirs_m * ours0.first + theirs_b;
+        return (theirs_value >= ours_lowerY) && (theirs_value <= ours_upperY);
+    }
+
+    if(isinf(theirs_m))
+    {
+        // Check if X range of the lines overlap
+        bool x_overlap = (ours_lowerX < theirs0.first) && (ours_upperX > theirs0.first);
+        if(!x_overlap)
+            return false; 
+
+        double ours_value = ours_m * theirs0.first + ours_b;
+        return (ours_value >= theirs_lowerY) && (ours_value <= theirs_upperY);
+    }
+
+    // Brute-Force
+    for(double pos = ours0.first; pos < ours1.first; pos+=epsilon)
+    {
+        if(pos >= theirs_lowerX && pos <= theirs_upperX)
+        {
+            double ours_value = ours_m * pos + ours_b;
+            double theirs_value = theirs_m * pos + theirs_b;
+            double diff = ours_value - theirs_value;
+            if(abs(diff) < epsilon)
+                return true;
+        }
+    }
+    return false;
+}
 
 // Projections for KPIECE1 planner
 class PenProjection : public ob::ProjectionEvaluator
@@ -99,6 +167,7 @@ class PenProjection : public ob::ProjectionEvaluator
             projection(0) = rot->value;
         }
 };
+
 class CarProjection : public ob::ProjectionEvaluator
 {
     public:
@@ -185,73 +254,12 @@ bool isStateValidPen(const ob::State *state)
     /// extract the second component of the state and cast it to what we expect - angular velocity
     const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(1);
 
-    return true;
-}
-
-double dist(double x1, double y1, double x2, double y2)
-{
-    return sqrt(pow(x1-x2, 2) + pow(y1-y2, 2));
-}
-
-bool lineIntersection(Point2D ours0, Point2D ours1, Point2D theirs0, Point2D theirs1)
-{
-    double theirs_lowerX = std::min(theirs0.first, theirs1.first);
-    double theirs_upperX = std::max(theirs0.first, theirs1.first);
-    double ours_lowerX = std::min(ours0.first, ours1.first);
-    double ours_upperX = std::max(ours0.first, ours1.first);
-
-    // Check if Y range of the lines overlap
-    double theirs_lowerY = std::min(theirs0.second, theirs1.second);
-    double theirs_upperY = std::max(theirs0.second, theirs1.second);
-    double ours_lowerY = std::min(ours0.second, ours1.second);
-    double ours_upperY = std::max(ours0.second, ours1.second);
-
-    bool y0_overlap = (ours_lowerY >= theirs_lowerY) && (ours_lowerY <= theirs_upperY);
-    bool y1_overlap = (ours_upperY >= theirs_lowerY) && (ours_lowerY <= theirs_upperY);
-    if(!(y0_overlap || y1_overlap))
+    if(vel->values[0] > pen_velocity_limit)
         return false;
-
-    double ours_m = (ours1.second - ours0.second) / (ours1.first - ours0.first);
-    double ours_b = ours0.second - ours_m * ours0.first;
-
-    double theirs_m = (theirs1.second - theirs0.second) / (theirs1.first - theirs0.first);
-    double theirs_b = theirs0.second - theirs_m * theirs0.first;
-
-    if(isinf(ours_m))
-    {
-        // Check if X range of the lines overlap
-        bool x_overlap = (theirs_lowerX < ours0.first) && (theirs_upperX > ours0.first);
-        if(!x_overlap)
-            return false;
-
-        double theirs_value = theirs_m * ours0.first + theirs_b;
-        return (theirs_value >= ours_lowerY) && (theirs_value <= ours_upperY);
-    }
-
-    if(isinf(theirs_m))
-    {
-        // Check if X range of the lines overlap
-        bool x_overlap = (ours_lowerX < theirs0.first) && (ours_upperX > theirs0.first);
-        if(!x_overlap)
-            return false; 
-
-        double ours_value = ours_m * theirs0.first + ours_b;
-        return (ours_value >= theirs_lowerY) && (ours_value <= theirs_upperY);
-    }
-
-    // Brute-Force
-    for(double pos = ours0.first; pos < ours1.first; pos+=epsilon)
-    {
-        if(pos >= theirs_lowerX && pos <= theirs_upperX)
-        {
-            double ours_value = ours_m * pos + ours_b;
-            double theirs_value = theirs_m * pos + theirs_b;
-            double diff = ours_value - theirs_value;
-            if(abs(diff) < epsilon)
-                return true;
-        }
-    }
-    return false;
+    else if(vel->values[0] < -pen_velocity_limit)
+        return false;
+    else
+        return true;
 }
 
 bool isStateValidCar(const ob::State *state, const double minBound, const double maxBound, const std::vector<Rect> obstacles)
@@ -262,10 +270,19 @@ bool isStateValidCar(const ob::State *state, const double minBound, const double
     r2state = cstate->as<ompl::base::RealVectorStateSpace::StateType>(0);
     const ompl::base::SO2StateSpace::StateType* so2state;
     so2state = cstate->as<ompl::base::SO2StateSpace::StateType>(1);
+    const ompl::base::RealVectorStateSpace::StateType* rstate;
+    rstate = cstate->as<ompl::base::RealVectorStateSpace::StateType>(2);
 
     double x = r2state->values[0];
     double y = r2state->values[1];
     double theta = so2state->value;    
+    double v = rstate->values[0];
+
+    // Check car velocity bounds
+    if(v > car_velocity_limit)
+        return false;
+    else if(v < -car_velocity_limit)
+        return false;
 
     // Initial Square Robot Points
     std::vector<Point2D> pts;
@@ -313,7 +330,9 @@ bool isStateValidCar(const ob::State *state, const double minBound, const double
             }
         }
     }
+
     return true;
+
 }
 
 /// @cond IGNORE
@@ -339,8 +358,8 @@ void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::s
     ompl::base::StateSpacePtr r(new ompl::base::RealVectorStateSpace(1));
 
     ompl::base::RealVectorBounds velocity_limit(1);
-    velocity_limit.setLow(-M_PI/4);
-    velocity_limit.setHigh(M_PI/4);
+    velocity_limit.setLow(-pen_velocity_limit);
+    velocity_limit.setHigh(pen_velocity_limit);
     r->as<ompl::base::RealVectorStateSpace>()->setBounds(velocity_limit);
 
     space = so2 + r;
@@ -381,12 +400,14 @@ void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::s
     if (plannertype == 0) 
     {
         // RRT
+        ss.getSpaceInformation()->setPropagationStepSize(0.01);
         ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
         ss.setPlanner(planner);
     } 
     else if (plannertype == 1) 
     {
         // KPIECE1
+        ss.getSpaceInformation()->setPropagationStepSize(0.05);
         ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
         space->registerProjection("PenProjection", ob::ProjectionEvaluatorPtr(new PenProjection(space)));
         planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("PenProjection");
@@ -394,6 +415,7 @@ void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::s
 
     } else if (plannertype == 2) {
         // RG-RRT
+        ss.getSpaceInformation()->setPropagationStepSize(0.01);
         ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
         ss.setPlanner(planner);
     }
@@ -434,8 +456,8 @@ void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::s
 
     ompl::base::StateSpacePtr r(new ompl::base::RealVectorStateSpace(1));
     ompl::base::RealVectorBounds velocity_limit(1);
-    velocity_limit.setLow(-1);
-    velocity_limit.setHigh(1);
+    velocity_limit.setLow(-car_velocity_limit);
+    velocity_limit.setHigh(car_velocity_limit);
     r->as<ompl::base::RealVectorStateSpace>()->setBounds(velocity_limit);
 
     space = r2 + so2 + r;
@@ -461,6 +483,7 @@ void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::s
     // when integration has finished to normalize the orientation values.
     oc::ODESolverPtr odeSolver(new oc::ODEBasicSolver<> (ss.getSpaceInformation(), &KinematicCarODE));
     ss.setStatePropagator(oc::ODESolver::getStatePropagator(odeSolver, CarPostIntegration));
+    ss.getSpaceInformation()->setPropagationStepSize(0.05);
 
     /// create a start state
     ob::ScopedState<> start(space);
