@@ -5,8 +5,8 @@ INCLUDE_FLAGS = -I${OMPL_DIR}/include
 LD_FLAGS = -L${OMPL_DIR}/lib -lompl -lompl_app -lboost_program_options -lboost_system
 CXX=c++
 
-Controls: RigidBodyPlanningWithODESolverAndControls.o
-	$(CXX) $(CXXFLAGS) -o Controls RigidBodyPlanningWithODESolverAndControls.o $(LD_FLAGS)
+Controls: ODESolverAndControlsWithRigidBodyPlanning.o RGRRT.o
+	$(CXX) $(CXXFLAGS) -o Controls ODESolverAndControlsWithRigidBodyPlanning.o RGRRT.o $(LD_FLAGS)
 
 clean:
 	rm -rf *.o

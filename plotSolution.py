@@ -14,23 +14,10 @@ def plotPen(path):
     height = 6 * maxd / dy
     fig.set_size_inches((width, height))
 
-    #if environment == '0': # L shaped obstacle
-    #    ax.add_patch(patches.Polygon([(-0.5,0.5),(-0.5,-0.5),(-0.25,-0.5),(-0.25,0.5)], fill=True, color='0.20'))
-    #    ax.add_patch(patches.Polygon([(0.25,-0.25),(0.25,-0.5),(-0.25,-0.5),(-0.25,-0.25)], fill=True, color='0.20'))
-    #elif environment == '1': # Two rectangles with space in between
-    #    ax.add_patch(patches.Polygon([(-1.0,0.5),(-1.0,-0.5),(-0.25,-0.5),(-0.25,0.5)], fill=True, color='0.20'))
-    #    ax.add_patch(patches.Polygon([(1.0,0.5),(1.0,-0.5),(0.25,-0.5),(0.25,0.5)], fill=True, color='0.20'))
-
     # Plotting the path
     X = [p[0] for p in path]
     Y = [p[1] for p in path]
     ax.plot(X, Y)
-
-    #if robot == '1': # circle robot
-    #    for p in path:
-    #        ax.add_patch(patches.Circle((p[0],p[1]), 0.1, fill = False, color = '0.20'))
-
-    #plt.axis([-1,1,-1,1])
     plt.show()
 
 def plotCar(path):
@@ -43,11 +30,7 @@ def plotCar(path):
     height = 6 * maxd / dy
     fig.set_size_inches((width, height))
 
-    # Drawing the unit square
-    #if environment == '0': # L shaped obstacle
-    #ax.add_patch(patches.Polygon([(-0.5,0.5),(-0.5,-0.5),(-0.25,-0.5),(-0.25,0.5)], fill=True, color='0.20'))
-    #ax.add_patch(patches.Polygon([(0.25,-0.25),(0.25,-0.5),(-0.25,-0.5),(-0.25,-0.25)], fill=True, color='0.20'))
-    #elif environment == '1': # Two rectangles with space in between
+    # Drawing square obstacles
     ax.add_patch(patches.Polygon([(-1.0,0.5),(-1.0,-0.5),(-0.25,-0.5),(-0.25,0.5)], fill=True, color='0.20'))
     ax.add_patch(patches.Polygon([(1.0,0.5),(1.0,-0.5),(0.25,-0.5),(0.25,0.5)], fill=True, color='0.20'))
 

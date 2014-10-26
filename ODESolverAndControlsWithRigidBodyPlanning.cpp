@@ -1,36 +1,36 @@
 /*********************************************************************
-* Software License Agreement (BSD License)
-*
-*  Copyright (c) 2012, Rice University
-*  All rights reserved.
-*
-*  Redistribution and use in source and binary forms, with or without
-*  modification, are permitted provided that the following conditions
-*  are met:
-*
-*   * Redistributions of source code must retain the above copyright
-*     notice, this list of conditions and the following disclaimer.
-*   * Redistributions in binary form must reproduce the above
-*     copyright notice, this list of conditions and the following
-*     disclaimer in the documentation and/or other materials provided
-*     with the distribution.
-*   * Neither the name of the Rice University nor the names of its
-*     contributors may be used to endorse or promote products derived
-*     from this software without specific prior written permission.
-*
-*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-*  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-*  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-*  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-*  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-*  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-*  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-*  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-*  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-*  POSSIBILITY OF SUCH DAMAGE.
-*********************************************************************/
+ * Software License Agreement (BSD License)
+ *
+ *  Copyright (c) 2012, Rice University
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above
+ *     copyright notice, this list of conditions and the following
+ *     disclaimer in the documentation and/or other materials provided
+ *     with the distribution.
+ *   * Neither the name of the Rice University nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+ *  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *********************************************************************/
 
 /* Author: Ryan Luna */
 
@@ -43,16 +43,27 @@
 #include <iostream>
 #include <valarray>
 #include <limits>
-#include <ompl/geometric/planners/rrt/RRT.h>
-#include <ompl/geometric/planners/kpiece/KPIECE1.h>
 #include <fstream>
 #include <vector>
+#include <math.h>
+
+#include "RGRRT.h"
+#include <ompl/control/planners/rrt/RRT.h>
+#include <ompl/control/planners/kpiece/KPIECE1.h>
 
 const int CHOICES = 2;
 const int PLANNERS = 3;
 const double epsilon = 0.01;
 const double radius = 0.1;
 const double square = 0.125;
+const double g = 9.81;
+
+// Pendulum Limits
+const double torque_limit = M_PI / 4;
+
+// Car Limits
+const double turning_limit = M_PI / 2;
+const double acceleration_limit = 0.25;
 
 typedef std::pair<double, double> Point2D;
 typedef std::vector<Point2D> Rect;
@@ -63,67 +74,65 @@ namespace oc = ompl::control;
 // Projections for KPIECE1 planner
 class PenProjection : public ob::ProjectionEvaluator
 {
-public:
-PenProjection(const ob::StateSpacePtr &space) : ob::ProjectionEvaluator(space)
-{
-}
+    public:
+        PenProjection(const ob::StateSpacePtr &space) : ob::ProjectionEvaluator(space) {}
 
-virtual unsigned int getDimension(void) const{
-    return 2;
-}
-virtual void defaultCellSizes(void)
-{
-    cellSizes_.resize(2);
-    cellSizes_[0] = 0.1;
-    cellSizes_[1] = 0.25;
-}
-// Trivial projection
-virtual void project(const ob::State *state, ob::EuclideanProjection &projection) const
-{
-    const ompl::base::CompoundState* cstate;
-    cstate = state->as<ompl::base::CompoundState>();
-    const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(0);
-    const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(1);
-    projection(0) = rot->value;
-    projection(1) = vel->values[0];
-}
+        virtual unsigned int getDimension(void) const
+        {
+            return 2;
+        }
+
+        virtual void defaultCellSizes(void)
+        {
+            cellSizes_.resize(2);
+            cellSizes_[0] = 0.1;
+            cellSizes_[1] = 0.25;
+        }
+
+        // Trivial projection
+        virtual void project(const ob::State *state, ob::EuclideanProjection &projection) const
+        {
+            const ompl::base::CompoundState* cstate;
+            cstate = state->as<ompl::base::CompoundState>();
+            const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(0);
+            const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(1);
+            projection(0) = rot->value;
+        }
 };
 class CarProjection : public ob::ProjectionEvaluator
 {
-public:
-    CarProjection(const ob::StateSpacePtr &space) : ob::ProjectionEvaluator(space)
-    {
-    }
+    public:
+        CarProjection(const ob::StateSpacePtr &space) : ob::ProjectionEvaluator(space) {}
 
-    virtual unsigned int getDimension(void) const{
-        return 2;
-    }
-    virtual void defaultCellSizes(void)
-    {
-        cellSizes_.resize(2);
-        cellSizes_[0] = 0.1;
-        cellSizes_[1] = 0.25;
-    }
-    // Average positions, average angle and angular velocity
-    virtual void project(const ob::State *state, ob::EuclideanProjection &projection) const
-    {
-        const ompl::base::CompoundState* cstate;
-        cstate = state->as<ompl::base::CompoundState>();
-        const ob::RealVectorStateSpace::StateType *pos = cstate->as<ob::RealVectorStateSpace::StateType>(0);
-        const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(1);
-        const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(2);
-        projection(0) = (pos->values[0] + pos->values[1]) / 2.0;
-        projection(1) = (rot->value + vel->values[0]) / 2.0;
-    }
+        virtual unsigned int getDimension(void) const
+        {
+            return 2;
+        }
+        virtual void defaultCellSizes(void)
+        {
+            cellSizes_.resize(2);
+            cellSizes_[0] = 0.1;
+            cellSizes_[1] = 0.25;
+        }
+        // Average positions, average angle and angular velocity
+        virtual void project(const ob::State *state, ob::EuclideanProjection &projection) const
+        {
+            const ompl::base::CompoundState* cstate;
+            cstate = state->as<ompl::base::CompoundState>();
+            const ob::RealVectorStateSpace::StateType *pos = cstate->as<ob::RealVectorStateSpace::StateType>(0);
+            const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(1);
+            const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(2);
+            projection(0) = pos->values[0];
+            projection(1) = pos->values[1];
+        }
 };
 
 // Definition of the ODE for the pendulum
 void PendulumODE (const oc::ODESolver::StateType& q, const oc::Control* control, oc::ODESolver::StateType& qdot)
 {
-    const double *u = control->as<oc::RealVectorControlSpace::ControlType>()->values;
+    const double* u = control->as<oc::RealVectorControlSpace::ControlType>()->values;
     const double theta = q[0];
     const double omega = q[1];
-    const double g = 9.81;
 
     // Zero out qdot
     qdot.resize (q.size (), 0);
@@ -151,35 +160,31 @@ void KinematicCarODE (const oc::ODESolver::StateType& q, const oc::Control* cont
 // This is a callback method invoked after numerical integration.
 void PendulumPostIntegration (const ob::State* /*state*/, const oc::Control* /*control*/, const double /*duration*/, ob::State *result)
 {
-    // Normalize orientation between 0 and 2*pi
+    // Normalize orientation between -pi and pi
     ob::SO2StateSpace SO2;
     SO2.enforceBounds (result->as<ob::CompoundState>()->as<ob::SO2StateSpace::StateType>(0));
-    //const ompl::base::CompoundState* cstate;
-    //cstate = state->as<ompl::base::CompoundState>();
-    /// extract the second component of the state and cast it to what we expect
-    //const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(1);
 }
 
-bool isStateValidPen(const ob::State *state, const double minBound, const double maxBound, const std::vector<Rect> obstacles)
+// This is a callback method invoked after numerical integration.
+void CarPostIntegration (const ob::State* /*state*/, const oc::Control* /*control*/, const double /*duration*/, ob::State *result)
 {
-    //    ob::ScopedState<ob::SE2StateSpace>
+    // Normalize orientation between -pi and pi
+    ob::SO2StateSpace SO2;
+    SO2.enforceBounds (result->as<ob::CompoundState>()->as<ob::SO2StateSpace::StateType>(0));
+}
+
+bool isStateValidPen(const ob::State *state)
+{
     /// cast the abstract state type to the type we expect
-    //const ob::SE2StateSpace::StateType *se2state = state->as<ob::SE2StateSpace::StateType>();
     const ompl::base::CompoundState* cstate;
     cstate = state->as<ompl::base::CompoundState>();
 
-    /// extract the second component of the state and cast it to what we expect
+    /// extract the first component of the state and cast it to what we expect - angle orientation
     const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(0);
 
-    /// extract the third component of the state and cast it to what we expect
+    /// extract the second component of the state and cast it to what we expect - angular velocity
     const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(1);
 
-    /// check validity of state defined by pos & rot & vel
-
-
-    // return a value that is always true but uses the two variables we define, so we avoid compiler warnings
-    //return si->satisfiesBounds(state) && (const void*)rot != (const void*)vel;
-    // TODO check validity of theta (rot) and angular velocity (vel)
     return true;
 }
 
@@ -251,20 +256,6 @@ bool lineIntersection(Point2D ours0, Point2D ours1, Point2D theirs0, Point2D the
 
 bool isStateValidCar(const ob::State *state, const double minBound, const double maxBound, const std::vector<Rect> obstacles)
 {
-    /*//    ob::ScopedState<ob::SE2StateSpace>
-    /// cast the abstract state type to the type we expect
-    //const ob::SE2StateSpace::StateType *se2state = state->as<ob::SE2StateSpace::StateType>();
-    const ompl::base::CompoundState* cstate;
-    cstate = state->as<ompl::base::CompoundState>();
-    /// extract the first component of the state and cast it to what we expect
-    const ob::RealVectorStateSpace::StateType *pos = cstate->as<ob::RealVectorStateSpace::StateType>(0);
-    /// extract the second component of the state and cast it to what we expect
-    const ob::SO2StateSpace::StateType *rot = cstate->as<ob::SO2StateSpace::StateType>(1);
-    /// extract the third component of the state and cast it to what we expect
-    const ob::RealVectorStateSpace::StateType *vel = cstate->as<ob::RealVectorStateSpace::StateType>(2);
-    /// check validity of state defined by pos & rot & vel
-*/
-    // TODO set bounds on velocity
     const ompl::base::CompoundState* cstate;
     cstate = state->as<ompl::base::CompoundState>();
     const ompl::base::RealVectorStateSpace::StateType* r2state;
@@ -323,103 +314,94 @@ bool isStateValidCar(const ob::State *state, const double minBound, const double
         }
     }
     return true;
-
-    // return a value that is always true but uses the two variables we define, so we avoid compiler warnings
-    //return si->satisfiesBounds(state) && (const void*)rot != (const void*)pos;
 }
 
 /// @cond IGNORE
-class DemoControlSpace1 : public oc::RealVectorControlSpace
+// torque
+class PenControlSpace : public oc::RealVectorControlSpace
 {
-public:
-
-    DemoControlSpace1(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 1)
-    {
-    }
+    public:
+    PenControlSpace(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 1) {}
 };
-class DemoControlSpace2 : public oc::RealVectorControlSpace
+// turning angle, acceleration
+class CarControlSpace : public oc::RealVectorControlSpace
 {
-public:
-
-    DemoControlSpace2(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 2)
-    {
-    }
+    public:
+    CarControlSpace(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 2) {}
 };
 /// @endcond
 
 void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::string title = "Default")
 {
-
+    // theta, angular veloctiy
     ompl::base::StateSpacePtr space;
-
     ompl::base::StateSpacePtr so2(new ompl::base::SO2StateSpace());
-
     ompl::base::StateSpacePtr r(new ompl::base::RealVectorStateSpace(1));
-    ompl::base::RealVectorBounds bounds1(1);
-    bounds1.setLow(-2);
-    bounds1.setHigh(2);
-    r->as<ompl::base::RealVectorStateSpace>()->setBounds(bounds1);
+
+    ompl::base::RealVectorBounds velocity_limit(1);
+    velocity_limit.setLow(-M_PI/4);
+    velocity_limit.setHigh(M_PI/4);
+    r->as<ompl::base::RealVectorStateSpace>()->setBounds(velocity_limit);
 
     space = so2 + r;
 
     // create a control space
-    oc::ControlSpacePtr cspace(new DemoControlSpace1(space));
+    oc::ControlSpacePtr cspace(new PenControlSpace(space));
 
     // set the bounds for the control space
     ob::RealVectorBounds cbounds(1);
-    cbounds.setLow(-0.3);
-    cbounds.setHigh(0.3);
-
-    cspace->as<DemoControlSpace1>()->setBounds(cbounds);
+    cbounds.setLow(0);
+    cbounds.setHigh(torque_limit);
+    cspace->as<PenControlSpace>()->setBounds(cbounds);
 
     // define a simple setup class
     oc::SimpleSetup ss(cspace);
 
     // set state validity checking for this space
-    ss.setStateValidityChecker(boost::bind(isStateValidPen, _1, -1, 1, obstacles));
-    //ss.setStateValidityChecker(boost::bind(stateValidSquareRobot, _1, -1, 1, obstacles));
-
-    // Setting the propagation routine for this space:
-    // KinematicCarModel does NOT use ODESolver
-    //ss.setStatePropagator(oc::StatePropagatorPtr(new KinematicCarModel(ss.getSpaceInformation())));
+    ss.setStateValidityChecker(isStateValidPen);
 
     // Use the ODESolver to propagate the system.  Call KinematicCarPostIntegration
     // when integration has finished to normalize the orientation values.
     oc::ODESolverPtr odeSolver(new oc::ODEBasicSolver<> (ss.getSpaceInformation(), &PendulumODE));
-    ss.setStatePropagator(oc::ODESolver::getStatePropagator(odeSolver, &PendulumPostIntegration));
+    ss.setStatePropagator(oc::ODESolver::getStatePropagator(odeSolver));
 
     /// create a start state
     ob::ScopedState<> start(space);
-    start[0] = -3.14/2;
+    start[0] = -M_PI/2;
     start[1] = 0.0;
 
     /// create a  goal state; use the hard way to set the elements
     ob::ScopedState<> goal(space);
-    goal[0] = 3.14/2;
+    goal[0] = M_PI/2;
     goal[1] = 0.0;
 
     /// set the start and goal states
-    ss.setStartAndGoalStates(start, goal, 0.05);
+    ss.setStartAndGoalStates(start, goal, 0.15);
 
-    //ompl::base::PlannerPtr planner(new ompl::geometric::RRT(ss.getSpaceInformation()));
-    //ss.setPlanner(planner);
-    if (plannertype == 0) {
-        ompl::base::PlannerPtr planner(new ompl::geometric::RRT(ss.getSpaceInformation()));
+    if (plannertype == 0) 
+    {
+        // RRT
+        ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
         ss.setPlanner(planner);
-    } else if (plannertype == 1) {
-        ompl::base::PlannerPtr planner(new ompl::geometric::KPIECE1(ss.getSpaceInformation()));
+    } 
+    else if (plannertype == 1) 
+    {
+        // KPIECE1
+        ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
         space->registerProjection("PenProjection", ob::ProjectionEvaluatorPtr(new PenProjection(space)));
-        planner->as<ompl::geometric::KPIECE1>()->setProjectionEvaluator("PenProjection");
+        planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("PenProjection");
         ss.setPlanner(planner);
 
     } else if (plannertype == 2) {
         // RG-RRT
+        ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
+        ss.setPlanner(planner);
     }
 
     ss.setup();
 
     /// attempt to solve the problem within one second of planning time
-    ob::PlannerStatus solved = ss.solve(10.0);
+    ob::PlannerStatus solved = ss.solve(20.0);
 
     if (solved)
     {
@@ -439,34 +421,35 @@ void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::s
 
 void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::string title = "Default")
 {
-
+    // x, y, theta, v
     ompl::base::StateSpacePtr space;
 
     ompl::base::StateSpacePtr r2(new ompl::base::RealVectorStateSpace(2));
-    ompl::base::RealVectorBounds bounds2(2);
-    bounds2.setLow(-1);
-    bounds2.setHigh(1);
-    r2->as<ompl::base::RealVectorStateSpace>()->setBounds(bounds2);
+    ompl::base::RealVectorBounds bounds(2);
+    bounds.setLow(-1);
+    bounds.setHigh(1);
+    r2->as<ompl::base::RealVectorStateSpace>()->setBounds(bounds);
 
     ompl::base::StateSpacePtr so2(new ompl::base::SO2StateSpace());
 
     ompl::base::StateSpacePtr r(new ompl::base::RealVectorStateSpace(1));
-    ompl::base::RealVectorBounds bounds1(1);
-    bounds1.setLow(-2);
-    bounds1.setHigh(2);
-    r->as<ompl::base::RealVectorStateSpace>()->setBounds(bounds1);
+    ompl::base::RealVectorBounds velocity_limit(1);
+    velocity_limit.setLow(-1);
+    velocity_limit.setHigh(1);
+    r->as<ompl::base::RealVectorStateSpace>()->setBounds(velocity_limit);
 
     space = r2 + so2 + r;
 
-    // create a control space
-    oc::ControlSpacePtr cspace(new DemoControlSpace2(space));
+    // Create a control space
+    oc::ControlSpacePtr cspace(new CarControlSpace(space));
 
     // set the bounds for the control space
     ob::RealVectorBounds cbounds(2);
-    cbounds.setLow(-0.3);
-    cbounds.setHigh(0.3);
-
-    cspace->as<DemoControlSpace2>()->setBounds(cbounds);
+    cbounds.setLow(0, -turning_limit);
+    cbounds.setHigh(0, turning_limit);
+    cbounds.setLow(1, -acceleration_limit);
+    cbounds.setHigh(1, acceleration_limit);
+    cspace->as<CarControlSpace>()->setBounds(cbounds);
 
     // define a simple setup class
     oc::SimpleSetup ss(cspace);
@@ -474,14 +457,10 @@ void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::s
     // set state validity checking for this space
     ss.setStateValidityChecker(boost::bind(isStateValidCar, _1, -1, 1, obstacles));
 
-    // Setting the propagation routine for this space:
-    // KinematicCarModel does NOT use ODESolver
-    //ss.setStatePropagator(oc::StatePropagatorPtr(new KinematicCarModel(ss.getSpaceInformation())));
-
     // Use the ODESolver to propagate the system.  Call KinematicCarPostIntegration
     // when integration has finished to normalize the orientation values.
     oc::ODESolverPtr odeSolver(new oc::ODEBasicSolver<> (ss.getSpaceInformation(), &KinematicCarODE));
-    ss.setStatePropagator(oc::ODESolver::getStatePropagator(odeSolver/*, &KinematicCarPostIntegration*/));
+    ss.setStatePropagator(oc::ODESolver::getStatePropagator(odeSolver, CarPostIntegration));
 
     /// create a start state
     ob::ScopedState<> start(space);
@@ -498,28 +477,33 @@ void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::s
     goal[3] = 0.0;
 
     /// set the start and goal states
-    ss.setStartAndGoalStates(start, goal, 0.05);
+    ss.setStartAndGoalStates(start, goal, 0.15);
 
-    //ompl::base::PlannerPtr planner(new ompl::geometric::RRT(ss.getSpaceInformation()));
-    //ss.setPlanner(planner);
-
-    if (plannertype == 0) {
-        ompl::base::PlannerPtr planner(new ompl::geometric::RRT(ss.getSpaceInformation()));
+    if (plannertype == 0) 
+    {
+        // RRT
+        ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
         ss.setPlanner(planner);
-    } else if (plannertype == 1) {
-        ompl::base::PlannerPtr planner(new ompl::geometric::KPIECE1(ss.getSpaceInformation()));
+    } 
+    else if (plannertype == 1) 
+    {
+        // KPIECE1
+        ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
         space->registerProjection("CarProjection", ob::ProjectionEvaluatorPtr(new CarProjection(space)));
-        planner->as<ompl::geometric::KPIECE1>()->setProjectionEvaluator("CarProjection");
+        planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("CarProjection");
         ss.setPlanner(planner);
-    
-    } else if (plannertype == 2) {
+    } 
+    else if (plannertype == 2) 
+    {
         // RG-RRT
+        ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
+        ss.setPlanner(planner);
     }
 
     ss.setup();
 
     /// attempt to solve the problem within one second of planning time
-    ob::PlannerStatus solved = ss.solve(10.0);
+    ob::PlannerStatus solved = ss.solve(20.0);
 
     if (solved)
     {
@@ -603,8 +587,5 @@ int main(int, char **)
             planWithSimpleSetupCar(plannertype,obstacles[0], "UserPlanner");
             break;
     }
-
-    //planWithSimpleSetup(choice,planner,"Userchoice-Userplanner");
-
     return 0;
 }
