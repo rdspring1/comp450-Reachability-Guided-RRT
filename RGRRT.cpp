@@ -111,10 +111,13 @@ void ompl::control::RGRRT::setupReachableSet(Motion* const m)
         siC_->copyControl(motion->control, m->control);
         double*& controls = motion->control->as<RealVectorControlSpace::ControlType>()->values;
         controls[0] = low_bound[0] + control_offset[0] * (i+1);
-        for(int j = 1; j < high_bound.size(); ++j)
-            controls[j] = high_bound[j] / 4;
-        motion->steps = siC_->propagateWhileValid(m->state, motion->control, siC_->getMaxControlDuration(), motion->state);
-        m->reachable.push_back(motion); 
+        for(int j = 1; j < low_bound.size(); ++j)
+            controls[j] = high_bound[j]/2;
+
+        motion->steps = siC_->propagateWhileValid(m->state, motion->control, siC_->getMinControlDuration(), motion->state);
+
+        if(motion->steps != 0)
+            m->reachable.push_back(motion); 
     }
 }
 
@@ -197,19 +200,20 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
             id = selectReachableMotion(nmotion, rmotion);
         }
 
-        if(id != -1)
-        {
-            state = nmotion->reachable[id]->state;
-            ctrl = nmotion->reachable[id]->control;
-            cd = nmotion->reachable[id]->steps;
-        }
-        else
-        {
+        // Uncomment for better performance with Pendulum
+        //if(id != -1)
+        //{
+        //       state = nmotion->reachable[id]->state;
+        //       ctrl = nmotion->reachable[id]->control;
+        //       cd = nmotion->reachable[id]->steps;
+        //}
+        //else
+        //{
             ctrl = siC_->allocControl();
             state = si_->allocState(); 
             si_->copyState(state, rstate);
             cd = controlSampler_->sampleTo(ctrl, nmotion->control, nmotion->state, state);
-        }
+        //}
 
         if (addIntermediateStates_)
         {
