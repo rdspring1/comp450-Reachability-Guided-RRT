@@ -414,7 +414,7 @@ void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::s
         b.addPlanner(kp1);
 
         ompl::tools::Benchmark::Request req;
-        req.maxTime = 30.0;
+        req.maxTime = 20.0;
         req.maxMem = 1000.0;
         req.runCount = 20;
         req.displayProgress = true;
@@ -543,7 +543,7 @@ void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::s
         b.addPlanner(kp1);
 
         ompl::tools::Benchmark::Request req;
-        req.maxTime = 30.0;
+        req.maxTime = 20.0;
         req.maxMem = 1000.0;
         req.runCount = 20;
         req.displayProgress = true;
@@ -633,12 +633,8 @@ int main(int, char **)
 
     if(choice == CHOICES)
     {
-        planWithSimpleSetupPen(0, obstacles[0], "RRT", true);
-        planWithSimpleSetupPen(1, obstacles[0], "KPIECE", true);
-        planWithSimpleSetupPen(2, obstacles[0], "RG-RRT", true);
-        planWithSimpleSetupCar(0, obstacles[0], "RRT", true);
-        planWithSimpleSetupCar(1, obstacles[0], "KPIECE", true);
-        planWithSimpleSetupCar(2, obstacles[0], "RG-RRT", true);
+        planWithSimpleSetupPen(0, obstacles[0], "Benchmark-Pendulum", true);
+        planWithSimpleSetupCar(0, obstacles[0], "Benchmark-KinodynamicCar", true);
         return 0;
     }
 
