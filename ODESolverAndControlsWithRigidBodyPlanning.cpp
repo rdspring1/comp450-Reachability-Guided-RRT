@@ -36,9 +36,11 @@
 
 #include <ompl/control/SpaceInformation.h>
 #include <ompl/base/spaces/SE2StateSpace.h>
-#include <ompl/control/ODESolver.h>
 #include <ompl/control/spaces/RealVectorControlSpace.h>
+#include <ompl/control/ODESolver.h>
 #include <ompl/control/SimpleSetup.h>
+#include <ompl/tools/benchmark/Benchmark.h>
+#include <omplapp/config.h>
 #include <ompl/config.h>
 #include <iostream>
 #include <valarray>
@@ -340,17 +342,17 @@ bool isStateValidCar(const ob::State *state, const double minBound, const double
 class PenControlSpace : public oc::RealVectorControlSpace
 {
     public:
-    PenControlSpace(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 1) {}
+        PenControlSpace(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 1) {}
 };
 // turning angle, acceleration
 class CarControlSpace : public oc::RealVectorControlSpace
 {
     public:
-    CarControlSpace(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 2) {}
+        CarControlSpace(const ob::StateSpacePtr &stateSpace) : oc::RealVectorControlSpace(stateSpace, 2) {}
 };
 /// @endcond
 
-void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::string title = "Default")
+void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::string title = "Default", bool benchmark = false)
 {
     // theta, angular veloctiy
     ompl::base::StateSpacePtr space;
@@ -397,51 +399,77 @@ void planWithSimpleSetupPen(int plannertype, std::vector<Rect> obstacles, std::s
     /// set the start and goal states
     ss.setStartAndGoalStates(start, goal, 0.15);
 
-    if (plannertype == 0) 
+    if(benchmark)
     {
-        // RRT
+        // Benchmark Code - Project 4
+        ompl::tools::Benchmark b(ss, title);
         ss.getSpaceInformation()->setPropagationStepSize(0.01);
-        ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
-        ss.setPlanner(planner);
-    } 
-    else if (plannertype == 1) 
-    {
-        // KPIECE1
+        b.addPlanner(ompl::base::PlannerPtr(new ompl::control::RGRRT(ss.getSpaceInformation())));
+        b.addPlanner(ompl::base::PlannerPtr(new ompl::control::RRT(ss.getSpaceInformation())));
+
         ss.getSpaceInformation()->setPropagationStepSize(0.05);
-        ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
+        ompl::base::PlannerPtr kp1(new ompl::control::KPIECE1(ss.getSpaceInformation()));
         space->registerProjection("PenProjection", ob::ProjectionEvaluatorPtr(new PenProjection(space)));
-        planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("PenProjection");
-        ss.setPlanner(planner);
+        kp1->as<ompl::control::KPIECE1>()->setProjectionEvaluator("PenProjection");
+        b.addPlanner(kp1);
 
-    } else if (plannertype == 2) {
-        // RG-RRT
-        ss.getSpaceInformation()->setPropagationStepSize(0.01);
-        ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
-        ss.setPlanner(planner);
-    }
-
-    ss.setup();
-
-    /// attempt to solve the problem within one second of planning time
-    ob::PlannerStatus solved = ss.solve(20.0);
-
-    if (solved)
-    {
-        std::cout << "Found solution:" << std::endl;
-        ompl::control::PathControl& path = ss.getSolutionPath();
-        path.printAsMatrix(std::cout);
-
-        // print path to file
-        std::ofstream fout("path.txt");
-        fout << "Pen" << std::endl;
-        path.printAsMatrix(fout);
-        fout.close();
+        ompl::tools::Benchmark::Request req;
+        req.maxTime = 30.0;
+        req.maxMem = 1000.0;
+        req.runCount = 20;
+        req.displayProgress = true;
+        b.benchmark(req);
+        std::string logfile = title + ".log";
+        b.saveResultsToFile(logfile.c_str());
     }
     else
-        std::cout << "No solution found" << std::endl;
+    {
+        if (plannertype == 0) 
+        {
+            // RRT
+            ss.getSpaceInformation()->setPropagationStepSize(0.01);
+            ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
+            ss.setPlanner(planner);
+        } 
+        else if (plannertype == 1) 
+        {
+            // KPIECE1
+            ss.getSpaceInformation()->setPropagationStepSize(0.05);
+            ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
+            space->registerProjection("PenProjection", ob::ProjectionEvaluatorPtr(new PenProjection(space)));
+            planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("PenProjection");
+            ss.setPlanner(planner);
+
+        } else if (plannertype == 2) {
+            // RG-RRT
+            ss.getSpaceInformation()->setPropagationStepSize(0.01);
+            ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
+            ss.setPlanner(planner);
+        }
+
+        ss.setup();
+
+        /// attempt to solve the problem within one second of planning time
+        ob::PlannerStatus solved = ss.solve(20.0);
+
+        if (solved)
+        {
+            std::cout << "Found solution:" << std::endl;
+            ompl::control::PathControl& path = ss.getSolutionPath();
+            path.printAsMatrix(std::cout);
+
+            // print path to file
+            std::ofstream fout("path.txt");
+            fout << "Pen" << std::endl;
+            path.printAsMatrix(fout);
+            fout.close();
+        }
+        else
+            std::cout << "No solution found" << std::endl;
+    }
 }
 
-void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::string title = "Default")
+void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::string title = "Default", bool benchmark = false)
 {
     // x, y, theta, v
     ompl::base::StateSpacePtr space;
@@ -502,46 +530,70 @@ void planWithSimpleSetupCar(int plannertype, std::vector<Rect> obstacles, std::s
     /// set the start and goal states
     ss.setStartAndGoalStates(start, goal, 0.15);
 
-    if (plannertype == 0) 
+    if(benchmark)
     {
-        // RRT
-        ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
-        ss.setPlanner(planner);
-    } 
-    else if (plannertype == 1) 
-    {
-        // KPIECE1
-        ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
-        space->registerProjection("CarProjection", ob::ProjectionEvaluatorPtr(new CarProjection(space)));
-        planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("CarProjection");
-        ss.setPlanner(planner);
-    } 
-    else if (plannertype == 2) 
-    {
-        // RG-RRT
-        ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
-        ss.setPlanner(planner);
-    }
+        // Benchmark Code - Project 4
+        ompl::tools::Benchmark b(ss, title);
+        b.addPlanner(ompl::base::PlannerPtr(new ompl::control::RGRRT(ss.getSpaceInformation())));
+        b.addPlanner(ompl::base::PlannerPtr(new ompl::control::RRT(ss.getSpaceInformation())));
 
-    ss.setup();
+        ompl::base::PlannerPtr kp1(new ompl::control::KPIECE1(ss.getSpaceInformation()));
+        space->registerProjection("PenProjection", ob::ProjectionEvaluatorPtr(new PenProjection(space)));
+        kp1->as<ompl::control::KPIECE1>()->setProjectionEvaluator("PenProjection");
+        b.addPlanner(kp1);
 
-    /// attempt to solve the problem within one second of planning time
-    ob::PlannerStatus solved = ss.solve(20.0);
-
-    if (solved)
-    {
-        std::cout << "Found solution:" << std::endl;
-        ompl::control::PathControl& path = ss.getSolutionPath();
-        path.printAsMatrix(std::cout);
-
-        // print path to file
-        std::ofstream fout("path.txt");
-        fout << "Car" << std::endl;
-        path.printAsMatrix(fout);
-        fout.close();
+        ompl::tools::Benchmark::Request req;
+        req.maxTime = 30.0;
+        req.maxMem = 1000.0;
+        req.runCount = 20;
+        req.displayProgress = true;
+        b.benchmark(req);
+        std::string logfile = title + ".log";
+        b.saveResultsToFile(logfile.c_str());
     }
     else
-        std::cout << "No solution found" << std::endl;
+    {
+        if (plannertype == 0) 
+        {
+            // RRT
+            ompl::base::PlannerPtr planner(new ompl::control::RRT(ss.getSpaceInformation()));
+            ss.setPlanner(planner);
+        } 
+        else if (plannertype == 1) 
+        {
+            // KPIECE1
+            ompl::base::PlannerPtr planner(new ompl::control::KPIECE1(ss.getSpaceInformation()));
+            space->registerProjection("CarProjection", ob::ProjectionEvaluatorPtr(new CarProjection(space)));
+            planner->as<ompl::control::KPIECE1>()->setProjectionEvaluator("CarProjection");
+            ss.setPlanner(planner);
+        } 
+        else if (plannertype == 2) 
+        {
+            // RG-RRT
+            ompl::base::PlannerPtr planner(new ompl::control::RGRRT(ss.getSpaceInformation()));
+            ss.setPlanner(planner);
+        }
+
+        ss.setup();
+
+        /// attempt to solve the problem within one second of planning time
+        ob::PlannerStatus solved = ss.solve(20.0);
+
+        if (solved)
+        {
+            std::cout << "Found solution:" << std::endl;
+            ompl::control::PathControl& path = ss.getSolutionPath();
+            path.printAsMatrix(std::cout);
+
+            // print path to file
+            std::ofstream fout("path.txt");
+            fout << "Car" << std::endl;
+            path.printAsMatrix(fout);
+            fout.close();
+        }
+        else
+            std::cout << "No solution found" << std::endl;
+    }
 }
 
 int main(int, char **)
@@ -581,12 +633,12 @@ int main(int, char **)
 
     if(choice == CHOICES)
     {
-        planWithSimpleSetupPen(0, obstacles[0], "RRT");
-        planWithSimpleSetupPen(1, obstacles[0], "KPIECE");
-        planWithSimpleSetupPen(2, obstacles[0], "RG-RRT");
-        planWithSimpleSetupCar(0, obstacles[0], "RRT");
-        planWithSimpleSetupCar(1, obstacles[0], "KPIECE");
-        planWithSimpleSetupCar(2, obstacles[0], "RG-RRT");
+        planWithSimpleSetupPen(0, obstacles[0], "RRT", true);
+        planWithSimpleSetupPen(1, obstacles[0], "KPIECE", true);
+        planWithSimpleSetupPen(2, obstacles[0], "RG-RRT", true);
+        planWithSimpleSetupCar(0, obstacles[0], "RRT", true);
+        planWithSimpleSetupCar(1, obstacles[0], "KPIECE", true);
+        planWithSimpleSetupCar(2, obstacles[0], "RG-RRT", true);
         return 0;
     }
 

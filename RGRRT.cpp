@@ -43,7 +43,7 @@
 #include <boost/function.hpp>
 #include <boost/bind.hpp>
 
-ompl::control::RGRRT::RGRRT(const SpaceInformationPtr &si) : base::Planner(si, "RRT")
+ompl::control::RGRRT::RGRRT(const SpaceInformationPtr &si) : base::Planner(si, "RGRRT")
 {
     specs_.approximateSolutions = true;
     siC_ = si.get();
