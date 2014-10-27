@@ -10,8 +10,14 @@ Controls: ODESolverAndControlsWithRigidBodyPlanning.o RGRRT.o
 
 clean:
 	rm -rf *.o
+	rm -rf *.db
 	rm -rf path.txt
 	rm -rf Controls
+
+plots:
+	ompl_benchmark_statistics.py Benchmark-Pendulum.log -d Pen.db -p Pen.pdf
+	ompl_benchmark_statistics.py Benchmark-KinodynamicCar.log -d Car.db -p Car.pdf
+
 
 %.o: %.cpp
 	$(CXX) -c $(CXXFLAGS) $(INCLUDE_FLAGS) $< -o $@
