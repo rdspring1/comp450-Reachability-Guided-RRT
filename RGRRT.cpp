@@ -56,7 +56,8 @@ ompl::control::RGRRT::RGRRT(const SpaceInformationPtr &si) : base::Planner(si, "
     Planner::declareParam<bool>("intermediate_states", this, &RGRRT::setIntermediateStates, &RGRRT::getIntermediateStates);
 
     const std::vector<double> diff = siC_->getControlSpace()->as<RealVectorControlSpace>()->getBounds().getDifference();
-    this->control_offset = diff[0] / double(this->RSIZE);
+    for(double d : diff)
+        control_offset.push_back(d / double(this->RSIZE));
 }
 
 ompl::control::RGRRT::~RGRRT(void)
@@ -103,13 +104,15 @@ void ompl::control::RGRRT::freeMemory(void)
 void ompl::control::RGRRT::setupReachableSet(Motion* const m)
 {
     const std::vector<double>& low_bound = siC_->getControlSpace()->as<RealVectorControlSpace>()->getBounds().low;
+    const std::vector<double>& high_bound = siC_->getControlSpace()->as<RealVectorControlSpace>()->getBounds().high;
     for(int i = 0; i < this->RSIZE; ++i)
     {
         Motion* motion = new Motion(siC_);
         siC_->copyControl(motion->control, m->control);
         double*& controls = motion->control->as<RealVectorControlSpace::ControlType>()->values;
-        controls[0] = low_bound[0] + control_offset * (i+1);
-
+        controls[0] = low_bound[0] + control_offset[0] * (i+1);
+        for(int j = 1; j < high_bound.size(); ++j)
+            controls[j] = high_bound[j] / 4;
         motion->steps = siC_->propagateWhileValid(m->state, motion->control, siC_->getMaxControlDuration(), motion->state);
         m->reachable.push_back(motion); 
     }
@@ -179,7 +182,7 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
         base::State *state = NULL;
         Control *ctrl = NULL;
         unsigned int cd = 0;
-        while(id == -1)
+        for(int i = 0; i < 100 && id == -1; ++i)
         {
             /* sample random state (with goal biasing) */
             if (goal_s && rng_.uniform01() < goalBias_ && goal_s->canSample())

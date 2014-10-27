@@ -197,7 +197,7 @@ S.M. LaValle and J.J. Kuffner, Randomized kinodynamic planning, <em>Intl. J. of 
                 Motion                                         *lastGoalMotion_;
 
                 const int RSIZE = 10;
-                double control_offset;
+                std::vector<double> control_offset;
 
                 void setupReachableSet(Motion* const m);
                 int selectReachableMotion(const Motion* qnear, const Motion* qrand);
