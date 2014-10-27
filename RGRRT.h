@@ -169,15 +169,7 @@ S.M. LaValle and J.J. Kuffner, Randomized kinodynamic planning, <em>Intl. J. of 
                 /** \brief Compute distance between motions (actually distance between contained states) */
                 double distanceFunction(const Motion* a, const Motion* b) const
                 {
-                    const double nearD = si_->distance(a->state, b->state);
-                    const std::vector<Motion*>& reachable = a->reachable;
-                    for(Motion* qr : reachable)
-                    {
-                        double newD = si_->distance(qr->state, b->state);
-                        if(newD < nearD)
-                            return nearD;
-                    }
-                    return std::numeric_limits<double>::max();    
+                    return si_->distance(a->state, b->state);
                 }
 
                 /** \brief State sampler */
@@ -208,7 +200,7 @@ S.M. LaValle and J.J. Kuffner, Randomized kinodynamic planning, <em>Intl. J. of 
                 double control_offset;
 
                 void setupReachableSet(Motion* const m);
-                void selectReachableMotion(const Motion* qnear, const Motion* qrand, Motion* qr);
+                int selectReachableMotion(const Motion* qnear, const Motion* qrand);
         };
 
     }

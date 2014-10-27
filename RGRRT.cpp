@@ -88,7 +88,7 @@ void ompl::control::RGRRT::freeMemory(void)
     {
         std::vector<Motion*> motions;
         nn_->list(motions);
-        for (unsigned int i = 0 ; i < motions.size() ; ++i)
+        for (unsigned int i = 0; i < motions.size(); ++i)
         {
             if (motions[i]->state)
                 si_->freeState(motions[i]->state);
@@ -112,27 +112,28 @@ void ompl::control::RGRRT::setupReachableSet(Motion* const m)
         double*& controls = motion->control->as<RealVectorControlSpace::ControlType>()->values;
         controls[0] = low_bound[0] + control_offset * (i+1);
 
-        motion->steps = siC_->propagateWhileValid(m->state, motion->control, siC_->getMinControlDuration(), motion->state);
-
-        if(motion->steps != 0)
-            m->reachable.push_back(motion); 
+        const unsigned int avg_duration = siC_->getMaxControlDuration() - siC_->getMinControlDuration();
+        siC_->propagate(m->state, motion->control, avg_duration, motion->state);
+        m->reachable.push_back(motion); 
     }
 }
 
-void ompl::control::RGRRT::selectReachableMotion(const Motion* qnear, const Motion* qrand, Motion* qr)
+int ompl::control::RGRRT::selectReachableMotion(const Motion* qnear, const Motion* qrand)
 {
     const double nearD = si_->distance(qnear->state, qrand->state);
     double minD = nearD;
     const std::vector<Motion*>& reachable = qnear->reachable;
-    for(Motion* m : reachable)
+    int id = -1;
+    for(int i = 0; i < reachable.size(); ++i)
     {
-        double newD = si_->distance(m->state, qrand->state);
+        double newD = si_->distance(reachable[0]->state, qrand->state);
         if(newD < minD)
         {
             minD = newD;
-            qr = m;
+            id = i;
         }
     }
+    return id;
 }
 
 ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTerminationCondition &ptc)
@@ -174,25 +175,41 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
 
     while (ptc == false)
     {
-        /* sample random state (with goal biasing) */
-        if (goal_s && rng_.uniform01() < goalBias_ && goal_s->canSample())
-            goal_s->sampleGoal(rstate);
+        // Reject samples until there exists a sample where qr in R(qnear) is closer to the sample than qnear
+        int id = -1;
+        Motion *nmotion = NULL;
+        unsigned int cd = 0;
+        for(int i = 0; i < 10 && id == -1; ++i)
+        {
+            /* sample random state (with goal biasing) */
+            if (goal_s && rng_.uniform01() < goalBias_ && goal_s->canSample())
+                goal_s->sampleGoal(rstate);
+            else
+                sampler_->sampleUniform(rstate);
+
+            /* find closest state in the tree */
+            nmotion = nn_->nearest(rmotion);
+
+            // Select a sample from the nearest state's reachable set that is closer to the random state
+            id = selectReachableMotion(nmotion, rmotion);
+        }
+
+        if(id != -1)
+        {
+            rstate = nmotion->reachable[id]->state;
+            rctrl = nmotion->reachable[id]->control;
+            cd = nmotion->reachable[id]->steps;
+        }
         else
-            sampler_->sampleUniform(rstate);
-
-        /* find closest state in the tree */
-        Motion *nmotion = nn_->nearest(rmotion);
-
-        // Select a sample from the nearest state's reachable set that is closer to the random state
-        Motion *motion = NULL;
-        selectReachableMotion(nmotion, rmotion, motion);
-        unsigned int cd = motion->steps;
+        {
+            cd = controlSampler_->sampleTo(rctrl, nmotion->control, nmotion->state, rmotion->state);
+        }
 
         if (addIntermediateStates_)
         {
             // this code is contributed by Jennifer Barry
             std::vector<base::State *> pstates;
-            cd = siC_->propagateWhileValid(nmotion->state, motion->control, cd, pstates, true);
+            cd = siC_->propagateWhileValid(nmotion->state, rctrl, cd, pstates, true);
 
             if (cd >= siC_->getMinControlDuration())
             {
@@ -204,7 +221,6 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
                     /* create a motion */
                     Motion *motion = new Motion();
                     motion->state = pstates[p];
-                    //we need multiple copies of rctrl
                     motion->control = siC_->allocControl();
                     siC_->copyControl(motion->control, rctrl);
                     motion->steps = 1;
@@ -242,6 +258,10 @@ ompl::base::PlannerStatus ompl::control::RGRRT::solve(const base::PlannerTermina
             if (cd >= siC_->getMinControlDuration())
             {
                 /* create a motion */
+                Motion *motion = new Motion(siC_);
+                si_->copyState(motion->state, rmotion->state);
+                siC_->copyControl(motion->control, rmotion->control);
+                motion->steps = cd;
                 motion->parent = nmotion;
                 setupReachableSet(motion);
 
