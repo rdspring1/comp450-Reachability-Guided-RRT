@@ -196,7 +196,7 @@ S.M. LaValle and J.J. Kuffner, Randomized kinodynamic planning, <em>Intl. J. of 
                 /** \brief The most recent goal motion.  Used for PlannerData computation */
                 Motion                                         *lastGoalMotion_;
 
-                const int RSIZE = 10;
+                const int RSIZE = 15;
                 std::vector<double> control_offset;
 
                 void setupReachableSet(Motion* const m);

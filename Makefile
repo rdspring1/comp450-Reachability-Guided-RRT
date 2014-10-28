@@ -15,9 +15,8 @@ clean:
 	rm -rf Controls
 
 plots:
-	ompl_benchmark_statistics.py Benchmark-Pendulum.log -d Pen.db -p Pen.pdf
-	ompl_benchmark_statistics.py Benchmark-KinodynamicCar.log -d Car.db -p Car.pdf
-
+	ompl_benchmark_statistics.py Benchmark-Pendulum-15.log -d Pen-15.db -p Pen-15.pdf
+	ompl_benchmark_statistics.py Benchmark-KinodynamicCar-15.log -d Car-15.db -p Car-15.pdf
 
 %.o: %.cpp
 	$(CXX) -c $(CXXFLAGS) $(INCLUDE_FLAGS) $< -o $@

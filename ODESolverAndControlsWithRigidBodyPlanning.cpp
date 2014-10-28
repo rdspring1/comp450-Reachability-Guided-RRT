@@ -633,8 +633,8 @@ int main(int, char **)
 
     if(choice == CHOICES)
     {
-        planWithSimpleSetupPen(0, obstacles[0], "Benchmark-Pendulum", true);
-        planWithSimpleSetupCar(0, obstacles[0], "Benchmark-KinodynamicCar", true);
+        planWithSimpleSetupPen(0, obstacles[0], "Benchmark-Pendulum-15", true);
+        planWithSimpleSetupCar(0, obstacles[0], "Benchmark-KinodynamicCar-15", true);
         return 0;
     }
 
